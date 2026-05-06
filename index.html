@@ -938,22 +938,41 @@ function unwrapMcpResponse(res) {
 //////////////////////////////////////////////////////////
 // DATA FETCH
 //////////////////////////////////////////////////////////
+
+// Calls the /api/jt proxy (Cloudflare Pages Function in functions/api/jt.js).
+// The proxy holds the JobTread grantKey as a server-side env var and forwards
+// our query to https://api.jobtread.com/pave. We send only the query body;
+// the proxy adds the { "$": { grantKey } } wrapper.
+async function fetchJT(queryBody) {
+  const r = await fetch("/api/jt", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(queryBody)
+  });
+  const text = await r.text();
+  if (!r.ok) {
+    throw new Error(`Proxy ${r.status}: ${text.slice(0, 300)}`);
+  }
+  let data;
+  try { data = JSON.parse(text); }
+  catch { throw new Error(`Proxy returned non-JSON: ${text.slice(0, 300)}`); }
+  if (data && data.errors) {
+    throw new Error(`JobTread API error: ${JSON.stringify(data.errors)}`);
+  }
+  return data;
+}
+
 async function fetchActiveETeamVendors() {
-  const raw = await window.cowork.callMcpTool(
-    "mcp__062a4175-1496-48cb-be10-6c778272d284__query",
-    { query: {
-        customField: {
-          $: { id: VENDOR_TYPE_FIELD_ID },
-          customFieldValues: {
-            $: { size: 100 },
-            nodes: { value: {}, account: { id: {}, name: {} } }
-          }
-        }
-    }}
-  );
-  logDebug("vendor types — raw response", raw);
-  const res = unwrapMcpResponse(raw);
-  logDebug("vendor types — after unwrap", res);
+  const res = await fetchJT({
+    customField: {
+      $: { id: VENDOR_TYPE_FIELD_ID },
+      customFieldValues: {
+        $: { size: 100 },
+        nodes: { value: {}, account: { id: {}, name: {} } }
+      }
+    }
+  });
+  logDebug("vendor types response", res);
   const vendors = {};
   const nodes = res?.customField?.customFieldValues?.nodes || [];
   for (const n of nodes) {
@@ -966,35 +985,30 @@ async function fetchActiveETeamVendors() {
 }
 
 async function fetchDocsForVendor(vendorId, vendorName) {
-  const raw = await window.cowork.callMcpTool(
-    "mcp__062a4175-1496-48cb-be10-6c778272d284__query",
-    { query: {
-        account: {
-          $: { id: vendorId },
-          documents: {
-            $: { size: 50 },
-            count: {},
+  const res = await fetchJT({
+    account: {
+      $: { id: vendorId },
+      documents: {
+        $: { size: 50 },
+        count: {},
+        nodes: {
+          id: {}, type: {}, status: {}, issueDate: {}, subject: {},
+          name: {}, number: {}, cost: {}, amountPaid: {}, balance: {},
+          closedAt: {},
+          job: { id: {}, name: {}, number: {} },
+          referencedDocuments: {
+            $: { size: 5 },
             nodes: {
-              id: {}, type: {}, status: {}, issueDate: {}, subject: {},
-              name: {}, number: {}, cost: {}, amountPaid: {}, balance: {},
-              closedAt: {},
-              job: { id: {}, name: {}, number: {} },
-              referencedDocuments: {
-                $: { size: 5 },
-                nodes: {
-                  id: {}, type: {}, cost: {}, amountPaid: {},
-                  balance: {}, number: {}
-                }
-              }
+              id: {}, type: {}, cost: {}, amountPaid: {},
+              balance: {}, number: {}
             }
           }
         }
-    }}
-  );
-  const res = unwrapMcpResponse(raw);
+      }
+    }
+  });
   if (!_loggedFirstVendor) {
-    logDebug(`docs for ${vendorName} — raw response`, raw);
-    logDebug(`docs for ${vendorName} — after unwrap`, res);
+    logDebug(`docs for ${vendorName} response`, res);
     _loggedFirstVendor = true;
   }
   // Inject vendor reference into each doc since we dropped account from query
@@ -2119,6 +2133,17 @@ document.addEventListener("keydown", (e) => {
 //////////////////////////////////////////////////////////
 // INIT
 //////////////////////////////////////////////////////////
+
+// Albert (the AI chat) needs window.cowork.askClaude, which only exists when
+// the page runs inside Cowork. On the deployed Cloudflare site that API is
+// absent, so hide the Albert UI rather than show a broken chat. To bring
+// Albert back on the deployed site, we would proxy Anthropic via a second
+// Pages Function and rewire callAlbert to use it.
+if (!window.cowork || typeof window.cowork.askClaude !== "function") {
+  const albertEl = document.getElementById("albert-container");
+  if (albertEl) albertEl.style.display = "none";
+}
+
 loadAll();
 </script>
 </body>
