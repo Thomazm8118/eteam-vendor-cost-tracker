@@ -1,16 +1,28 @@
-// Cloudflare Pages Function: proxies JobTread Pave API queries from the
-// browser. The grantKey lives only as a Cloudflare environment variable and
-// never leaves the server.
-//
-// Browser sends: { customField: {...} } or { account: {...} }  (no $ wrapper)
-// Proxy wraps:   { query: { "$": { grantKey: <secret> }, ...body } }
-// Forwards POST to https://api.jobtread.com/pave and returns the response.
+// Cloudflare Worker entry point.
+// Serves the static dashboard from public/ and proxies POST /api/jt to the
+// JobTread Pave API. The grant key lives only as a Worker secret
+// (env.JOBTREAD_GRANT_KEY) and never reaches the browser.
 
 const PAVE_URL = "https://api.jobtread.com/pave";
 
-export async function onRequestPost({ request, env }) {
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+
+    if (url.pathname === "/api/jt") {
+      if (request.method !== "POST") {
+        return json({ error: "Use POST" }, 405);
+      }
+      return handleJT(request, env);
+    }
+
+    return env.ASSETS.fetch(request);
+  }
+};
+
+async function handleJT(request, env) {
   if (!env.JOBTREAD_GRANT_KEY) {
-    return json({ error: "Server missing JOBTREAD_GRANT_KEY env var" }, 500);
+    return json({ error: "Server missing JOBTREAD_GRANT_KEY" }, 500);
   }
 
   let body;
@@ -46,11 +58,6 @@ export async function onRequestPost({ request, env }) {
     status: upstream.status,
     headers: { "Content-Type": "application/json" }
   });
-}
-
-// Reject anything that isn't POST so a curious GET to /api/jt gets a clean error.
-export async function onRequest() {
-  return json({ error: "Use POST" }, 405);
 }
 
 function json(obj, status = 200) {
