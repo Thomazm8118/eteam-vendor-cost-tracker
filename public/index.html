@@ -160,20 +160,21 @@
   .doc-table tr.bill td:first-child { padding-left: 24px; }
   .doc-table .num { text-align: right; font-family: 'PT Mono', monospace; }
 
-  /* Paid Bills section: each VTO group is its own collapsible.
-     Click the VTO row to toggle visibility of its linked bills. */
-  .paid-vto-toggle { cursor: pointer; }
-  .paid-vto-toggle:hover td { background: #F0F2EC; }
-  .paid-vto-toggle > td:first-child::before {
-    content: "\25B8\00a0";
-    display: inline-block;
+  /* Paid Bills section: bills are visible by default. Click a bill row to
+     reveal the parent VTO above it. Multiple bills under the same VTO all
+     toggle the same VTO row, and any of them indicates the open state. */
+  .paid-bill-toggle { cursor: pointer; }
+  .paid-bill-toggle:hover td { background: #F0F2EC; }
+  .paid-bill-toggle.open td { background: #F0F2EC; }
+  .paid-bill-toggle > td:first-child::after {
+    content: "\00a0\25B8";
     color: #757B6D;
     font-size: 9px;
-    margin-right: 2px;
+    margin-left: 4px;
   }
-  .paid-vto-toggle.open > td:first-child::before { content: "\25BE\00a0"; }
-  tr.paid-bill-row { display: none; }
-  tr.paid-bill-row.show { display: table-row; }
+  .paid-bill-toggle.open > td:first-child::after { content: "\00a0\25BE"; }
+  tr.paid-vto-hidden { display: none; }
+  tr.paid-vto-hidden.show { display: table-row; }
   .cell-label {
     font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;
     color: #757B6D; font-family: 'PT Mono', monospace;
@@ -1636,17 +1637,21 @@ function renderVendorGroups(docs) {
   area.querySelectorAll(".vendor-body.open").forEach(b => {
     b.parentElement.querySelector(".toggle").textContent = "▼";
   });
-  // Wire per-VTO toggles inside the Paid Bills section. Click a paid VTO row
-  // to expand or collapse its linked bills. Clicks on doc links inside the
-  // row pass through so the user can still jump to JT.
-  area.querySelectorAll(".paid-vto-toggle").forEach(row => {
+  // Wire per-bill toggles inside the Paid Bills section. Bills are visible
+  // by default; clicking any bill in a group reveals the parent VTO above
+  // it. Multiple bills under the same VTO all toggle the same VTO and
+  // share the open-state visual. Clicks on doc links inside the row pass
+  // through so the user can still jump to JT.
+  area.querySelectorAll(".paid-bill-toggle").forEach(row => {
     row.addEventListener("click", (e) => {
       if (e.target.closest("a")) return;
       const key = row.dataset.paidGroup;
       if (!key) return;
-      const isOpen = row.classList.toggle("open");
-      area.querySelectorAll(`.paid-bill-row[data-paid-group="${key}"]`).forEach(b => {
-        b.classList.toggle("show", isOpen);
+      const vto = area.querySelector(`.paid-vto-hidden[data-paid-group="${key}"]`);
+      if (!vto) return;
+      const isShown = vto.classList.toggle("show");
+      area.querySelectorAll(`.paid-bill-toggle[data-paid-group="${key}"]`).forEach(b => {
+        b.classList.toggle("open", isShown);
       });
     });
   });
@@ -1749,17 +1754,19 @@ function renderVendorDocs(docs) {
     let paidRows = "";
     for (const g of paidGroups) {
       const groupKey = `pg-${g.vto.id}`;
-      // Make the VTO row clickable; bills under it start hidden and toggle on
-      // click. Each group has a unique data-paid-group key so toggles do not
-      // affect other groups in the same paid section.
+      // VTO row is rendered first in DOM so when it is revealed it appears
+      // above its bills (matching the main-view convention), but starts
+      // hidden. Bills below are clickable; a click on any bill toggles the
+      // VTO above. Each group has a unique data-paid-group key so toggles
+      // do not affect other groups in the same paid section.
       paidRows += renderVtoRow(g.vto).replace(
         '<tr class="vto">',
-        `<tr class="vto paid-vto-toggle" data-paid-group="${groupKey}">`
+        `<tr class="vto paid-vto-hidden" data-paid-group="${groupKey}">`
       );
       for (const lb of g.linkedBills) {
         paidRows += renderBillRow(lb.bill, true, lb.autoMatched).replace(
           /<tr class="bill"/,
-          `<tr class="bill paid-bill-row" data-paid-group="${groupKey}"`
+          `<tr class="bill paid-bill-toggle" data-paid-group="${groupKey}"`
         );
       }
     }
