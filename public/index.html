@@ -1459,6 +1459,13 @@ function computeStats(docs) {
       billCount++;
       if (bal === 0 && ap > 0) paidCount++;
       else if (bal > 0) payableCount++;
+      // Orphan bills (no parent VTO, formal or auto-matched) contribute to
+      // committed; otherwise vendors with only direct-expense bills (e.g.
+      // legacy QB imports, or a brand-new vendor before any VTO exists)
+      // read as committed=0 and sort to the bottom on the default ranking.
+      if (!state.billToVto[d.id]) {
+        committed += billedAmt;
+      }
     }
   }
   return { committed, billed, paid, payable, payableNet, cisOnPayable, toBill, vtoCount, billCount, paidCount, payableCount, orphanVtoCount };
@@ -1486,14 +1493,24 @@ function renderVendorGroups(docs) {
     return { ...g, stats };
   });
 
-  // Sort: payable desc by default, or apply view-specific sort
-  if (state.filters.view === "anna") {
-    groups.sort((a, b) => b.stats.payable - a.stats.payable);
-  } else if (state.filters.view === "dan") {
-    groups.sort((a, b) => b.stats.toBill - a.stats.toBill);
-  } else {
-    groups.sort((a, b) => b.stats.committed - a.stats.committed);
-  }
+  // Sort: payable desc by default, or apply view-specific sort.
+  // If the user has filtered down to one vendor (vendor dropdown), pin that
+  // vendor to the top regardless of stats so it's always the first card
+  // visible. Otherwise the explicitly-picked vendor can end up buried at the
+  // bottom when its stats are all zero (e.g. all bills already paid).
+  const pinnedVendor = state.filters.vendor || null;
+  const sortByStats = (a, b) => {
+    if (state.filters.view === "anna") return b.stats.payable - a.stats.payable;
+    if (state.filters.view === "dan") return b.stats.toBill - a.stats.toBill;
+    return b.stats.committed - a.stats.committed;
+  };
+  groups.sort((a, b) => {
+    if (pinnedVendor) {
+      if (a.vendor.id === pinnedVendor) return -1;
+      if (b.vendor.id === pinnedVendor) return 1;
+    }
+    return sortByStats(a, b);
+  });
 
   // Count zero-relevance vendors for the current view (for caption only — nothing hidden)
   let zeroRelevanceCount = 0;
@@ -1621,45 +1638,65 @@ function renderVendorDocs(docs) {
   vtos.sort((a, b) => (b.issueDate || "").localeCompare(a.issueDate || ""));
   orphanBills.sort((a, b) => (b.issueDate || "").localeCompare(a.issueDate || ""));
 
-  // Fully-paid bills get tucked into a collapsed section at the bottom of the
-  // vendor card so the main view only shows what still needs action. Same
-  // predicate as renderBillRow's isFullyPaid: balance hit zero and something
-  // was paid.
+  // A VTO and its bills are treated as one unit. They move to the Paid section
+  // ONLY when the VTO has at least one linked bill AND every linked bill is
+  // fully paid. Mixed (some paid, some unpaid) keeps the whole VTO in the main
+  // view with all its bills underneath, so the parent/child relationship is
+  // never broken: every bill stays visually connected to the VTO it came from.
+  // Standalone (orphan) paid bills go into the same Paid section individually.
   const isFullyPaid = (b) => (b.balance || 0) === 0 && (b.amountPaid || 0) > 0;
-  const paidBills = []; // { bill, indented, autoMatched }
+  const paidGroups = [];   // { vto, linkedBills:[{bill, autoMatched}], sortKey }
+  const paidOrphanRows = []; // { bill, autoMatched }
 
   let rows = "";
   for (const v of vtos) {
-    rows += renderVtoRow(v);
     const formalIds = state.vtoToBills[v.id] || [];
     const autoIds = state.vtoToAutoMatched[v.id] || [];
+    const linkedBills = [];
     for (const bid of formalIds) {
       const b = state.documents.find(x => x.id === bid);
-      if (!b) continue;
-      if (isFullyPaid(b)) paidBills.push({ bill: b, indented: true, autoMatched: false });
-      else rows += renderBillRow(b, true, false);
+      if (b) linkedBills.push({ bill: b, autoMatched: false });
     }
     for (const bid of autoIds) {
       const b = state.documents.find(x => x.id === bid);
-      if (!b) continue;
-      if (isFullyPaid(b)) paidBills.push({ bill: b, indented: true, autoMatched: true });
-      else rows += renderBillRow(b, true, true);
+      if (b) linkedBills.push({ bill: b, autoMatched: true });
+    }
+    const allPaid = linkedBills.length > 0 && linkedBills.every(lb => isFullyPaid(lb.bill));
+    if (allPaid) {
+      // Sort key: latest closedAt across the bills (most recently fully-paid
+      // VTOs surface at the top of the Paid section).
+      const latestClosed = linkedBills
+        .map(lb => lb.bill.closedAt || "")
+        .sort()
+        .pop() || v.issueDate || "";
+      paidGroups.push({ vto: v, linkedBills, sortKey: latestClosed });
+    } else {
+      // VTO and ALL its bills (including any individually-paid ones) stay in
+      // main view together. Anna and Dan see the full lineage of every bill.
+      rows += renderVtoRow(v);
+      for (const lb of linkedBills) {
+        rows += renderBillRow(lb.bill, true, lb.autoMatched);
+      }
     }
   }
+
   const unpaidOrphans = orphanBills.filter(b => !isFullyPaid(b));
   const paidOrphans = orphanBills.filter(b => isFullyPaid(b));
   if (unpaidOrphans.length > 0) {
     rows += `<tr><td colspan="9" style="padding-top:10px;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#757B6D;font-weight:700">Standalone bills (no parent VTO &mdash; legacy / direct expense)</td></tr>`;
     for (const b of unpaidOrphans) rows += renderBillRow(b, false, false);
   }
-  for (const b of paidOrphans) paidBills.push({ bill: b, indented: false, autoMatched: false });
+  for (const b of paidOrphans) paidOrphanRows.push({ bill: b, autoMatched: false });
 
-  // Sort paid bills newest-paid first; closedAt is when balance hit zero.
-  paidBills.sort((a, b) =>
+  paidGroups.sort((a, b) => b.sortKey.localeCompare(a.sortKey));
+  paidOrphanRows.sort((a, b) =>
     (b.bill.closedAt || b.bill.issueDate || "").localeCompare(
       a.bill.closedAt || a.bill.issueDate || ""
     )
   );
+
+  const totalPaidBills =
+    paidGroups.reduce((s, g) => s + g.linkedBills.length, 0) + paidOrphanRows.length;
 
   const tableHeader = `
         <tr>
@@ -1679,14 +1716,26 @@ function renderVendorDocs(docs) {
     : "";
 
   let paidSection = "";
-  if (paidBills.length > 0) {
-    const paidRows = paidBills
-      .map(p => renderBillRow(p.bill, p.indented, p.autoMatched))
-      .join("");
+  if (totalPaidBills > 0) {
+    let paidRows = "";
+    for (const g of paidGroups) {
+      paidRows += renderVtoRow(g.vto);
+      for (const lb of g.linkedBills) {
+        paidRows += renderBillRow(lb.bill, true, lb.autoMatched);
+      }
+    }
+    if (paidOrphanRows.length > 0) {
+      if (paidGroups.length > 0) {
+        paidRows += `<tr><td colspan="9" style="padding-top:10px;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#757B6D;font-weight:700">Standalone paid bills (no parent VTO)</td></tr>`;
+      }
+      for (const po of paidOrphanRows) {
+        paidRows += renderBillRow(po.bill, false, po.autoMatched);
+      }
+    }
     paidSection = `
       <details class="paid-bills" style="margin-top:8px;background:#F8F9F4;border:1px solid #BABABC;border-radius:4px;padding:6px 10px">
         <summary style="cursor:pointer;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#757B6D;font-weight:700;user-select:none">
-          Paid bills (${paidBills.length}) &middot; click to expand
+          Paid bills (${totalPaidBills}) &middot; click to expand
         </summary>
         <table class="doc-table" style="margin-top:6px">
           <tbody>${paidRows}</tbody>
