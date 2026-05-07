@@ -901,6 +901,26 @@ function fmtTickTime(iso) {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) + " " + time;
 }
 
+// Per-vendor open/closed state, persisted to localStorage. Stores the
+// user's explicit choice so it survives a JT Reload (which re-renders
+// the dashboard) and a browser refresh (Cmd+R / Cmd+Shift+R). Each
+// vendor maps to "open" or "closed". Vendors not present fall back to
+// the view-default behaviour (Anna/Dan auto-open, default-view closed).
+const VENDOR_OPEN_KEY = "elemented-vendor-open-v1";
+function loadVendorOpenState() {
+  try { return JSON.parse(localStorage.getItem(VENDOR_OPEN_KEY) || "{}"); }
+  catch { return {}; }
+}
+function saveVendorOpenState(obj) {
+  try { localStorage.setItem(VENDOR_OPEN_KEY, JSON.stringify(obj)); } catch {}
+}
+function setVendorOpen(vendorId, open) {
+  if (!vendorId) return;
+  const s = loadVendorOpenState();
+  s[vendorId] = open ? "open" : "closed";
+  saveVendorOpenState(s);
+}
+
 // Track raw responses for debugging
 let _debugLog = [];
 function logDebug(label, val) {
@@ -1548,6 +1568,8 @@ function renderVendorGroups(docs) {
     html += `<div style="font-size:11px;color:#757B6D;font-family:'PT Mono',monospace;padding:6px 12px;margin-bottom:8px">Dan view — sorted by VTOs awaiting bill. ${zeroRelevanceCount} vendor(s) below have nothing awaiting (greyed).</div>`;
   }
 
+  const vendorOpenState = loadVendorOpenState();
+
   for (const g of groups) {
     if (!g.vendor) continue;
     // When user is actively searching, hide vendors with no matching docs
@@ -1561,7 +1583,16 @@ function renderVendorGroups(docs) {
     const zeroRelevance =
       (isViewAnna && g.stats.payable <= 0) ||
       (isViewDan && g.stats.toBill <= 0 && g.stats.orphanVtoCount === 0);
-    const headOpen = ((isViewAnna || isViewDan) && !zeroRelevance) || searchActive ? "open" : "";
+    // Default open behaviour: Anna/Dan auto-open relevant cards, default
+    // view starts collapsed, search opens matched cards. Persisted user
+    // choice (clicking a header to open/close) overrides the default so
+    // it survives JT Reload and browser refresh.
+    const defaultOpen = ((isViewAnna || isViewDan) && !zeroRelevance) || searchActive;
+    const explicit = vendorOpenState[g.vendor.id];
+    const isOpen = explicit === "open" ? true
+                 : explicit === "closed" ? false
+                 : defaultOpen;
+    const headOpen = isOpen ? "open" : "";
     const dimStyle = zeroRelevance ? ' style="opacity:0.5"' : "";
     const failed = state.failedVendors && state.failedVendors.has(g.vendor.id);
     const noDocs = g.docs.length === 0;
@@ -1630,7 +1661,12 @@ function renderVendorGroups(docs) {
       const body = el.parentElement.querySelector(".vendor-body");
       const tog = el.querySelector(".toggle");
       body.classList.toggle("open");
-      tog.textContent = body.classList.contains("open") ? "▼" : "▶";
+      const isOpen = body.classList.contains("open");
+      tog.textContent = isOpen ? "▼" : "▶";
+      // Persist so the choice survives a Reload (re-render) or browser
+      // refresh; renderVendorGroups reads this back via loadVendorOpenState.
+      const card = el.closest(".vendor-card");
+      if (card && card.dataset.vid) setVendorOpen(card.dataset.vid, isOpen);
     });
   });
   // Set initial arrow state
