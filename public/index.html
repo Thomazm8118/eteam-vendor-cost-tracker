@@ -1886,6 +1886,11 @@ function renderBillRow(b, indented, autoMatched) {
     toPayCell = `${fmtMoney(bal)} <span class="cell-label">to pay</span><br><span class="cell-label" style="color:#383838">${fmtMoney(balCis.net)} net of CIS</span>`;
   } else if (bal > 0) {
     toPayCell = `${fmtMoney(bal)} <span class="cell-label">to pay</span>`;
+  } else if (isFullyPaid && cisRate > 0 && cost > 0) {
+    // Historical net-of-CIS so Anna can match paid rows to bank lines,
+    // which show the amount the vendor received (CIS goes to HMRC).
+    const costNet = cisFor(cost, vendorName).net;
+    toPayCell = `${fmtMoney(bal)}<br><span class="cell-label" style="color:#383838">${fmtMoney(costNet)} net of CIS</span>`;
   } else {
     toPayCell = `${fmtMoney(bal)}`;
   }
