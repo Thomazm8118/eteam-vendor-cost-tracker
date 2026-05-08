@@ -200,28 +200,30 @@
     background: #E5E5E5;
     transition: background 0.2s;
   }
-  /* Per-stage colors. Natural earth-tone palette to match Elemented:
-     dusty blue, warm honey, sage moss, forest green. Order of stages on
-     the bar: created -> accepted -> ready for review -> billed. */
-  .lifecycle-bar .seg.s-created   { background: #7A9CB8; } /* dusty blue */
-  .lifecycle-bar .seg.s-accepted  { background: #C7984F; } /* warm honey amber */
-  .lifecycle-bar .seg.s-review    { background: #9DB17C; } /* sage moss (NEW) */
-  .lifecycle-bar .seg.s-fully     { background: #588157; } /* forest green */
-  .lifecycle-bar .seg.s-partly    { background: #D9A86F; } /* lighter honey */
-  .lifecycle-bar .seg.s-over      { background: #C75D3F; } /* burnt orange (Elemented) */
-  .lifecycle-bar .seg.s-denied    { background: #7B4848; } /* muted dark red */
+  /* Per-stage colors. Apple iOS system palette: clean, vivid, modern,
+     instantly recognisable from Calendar / Reminders / Mail. The 4-stage
+     progression reads at a glance: blue -> orange -> lime -> green. */
+  .lifecycle-bar .seg.s-created   { background: #0A84FF; } /* Apple Blue */
+  .lifecycle-bar .seg.s-accepted  { background: #FF9F0A; } /* Apple Orange */
+  .lifecycle-bar .seg.s-review    { background: #84CC16; } /* Vivid lime (NEW), bridges orange and green */
+  .lifecycle-bar .seg.s-fully     { background: #34C759; } /* Apple Green */
+  .lifecycle-bar .seg.s-partly    { background: #FFCC00; } /* Apple Yellow */
+  .lifecycle-bar .seg.s-over      { background: #FF3B30; } /* Apple Red */
+  .lifecycle-bar .seg.s-denied    { background: #8E8E93; } /* Apple Gray */
 
   .lifecycle-label {
     font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px;
     color: #383838; font-weight: 700;
     line-height: 1.2;
   }
-  .lifecycle-label.l-created  { color: #5A7A95; }
-  .lifecycle-label.l-accepted { color: #A57F36; }
-  .lifecycle-label.l-review   { color: #75895A; } /* NEW, sage moss text */
-  .lifecycle-label.l-approved { color: #456845; }
-  .lifecycle-label.l-over     { color: #A04A30; }
-  .lifecycle-label.l-denied   { color: #5C3636; }
+  /* Label colours = slightly deeper variants of the seg colour so the
+     text stays readable on the cream #F8F9F4 page background. */
+  .lifecycle-label.l-created  { color: #0050C7; }
+  .lifecycle-label.l-accepted { color: #C77000; }
+  .lifecycle-label.l-review   { color: #65A30D; } /* lime-600 */
+  .lifecycle-label.l-approved { color: #1B7F2D; }
+  .lifecycle-label.l-over     { color: #C7271F; }
+  .lifecycle-label.l-denied   { color: #5A5A5C; }
 
   .lifecycle-sub {
     font-size: 9px; color: #757B6D; font-family: 'PT Mono', monospace;
