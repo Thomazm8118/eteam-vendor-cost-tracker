@@ -2077,8 +2077,12 @@ function getVtoLifecycle(v, linkedBills, sumLinked, cost) {
       pct: 100
     };
   }
+  // Partly billed: still APPROVED. Segment 4 stays green so the eye
+  // does not read 'partly' as 'going backwards to amber/orange'. The
+  // partial state is communicated only in the sub-text. Yellow used
+  // to be the segment-4 colour here and confused Tom in test videos.
   return {
-    stages: ["s-created", "s-accepted", seg3IfBilled, "s-partly"],
+    stages: ["s-created", "s-accepted", seg3IfBilled, "s-fully"],
     label: "Approved",
     labelClass: "l-approved",
     sub: `Partly billed (${Math.round((sumLinked / cost) * 100)}%)`,
