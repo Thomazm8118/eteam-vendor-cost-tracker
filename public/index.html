@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Abacus</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -565,6 +568,85 @@
     background: #FFFFFF; text-align: center;
     font-family: 'PT Mono', monospace;
     border-top: 1px solid #F8F9F4;
+  }
+
+  /* ============================================================
+     Mobile / narrow viewport. Designed for iPhone (375-430 px wide)
+     but also covers any small screen up to 700 px. Desktop styles
+     above are untouched - only overrides below this breakpoint.
+     ============================================================ */
+  @media (max-width: 700px) {
+    html, body { font-size: 14px; }
+    .app { padding: 10px 10px 40px; }
+
+    /* Header: stack the logo+title block above the status pill +
+       Reload button so nothing gets squashed off-screen. */
+    .head { flex-direction: column; align-items: stretch; gap: 10px; }
+    .head h1 { font-size: 22px; }
+    .head .subtitle { font-size: 9px; }
+    .abacus-logo { width: 44px; }
+    .head-right { text-align: left; display: flex; align-items: center; gap: 10px; }
+    .head-right br { display: none; }
+    .head-right button#reload-btn { margin-top: 0 !important; }
+
+    /* Filters: each filter-group becomes a full-width row. */
+    .filters { flex-direction: column; align-items: stretch; gap: 6px; }
+    .filter-group { width: 100%; flex-wrap: wrap; }
+    .filter-group select, .filter-group input { flex: 1; min-width: 0; }
+    /* iOS Safari zooms in on inputs whose font-size is below 16px.
+       Force 16px on form controls to prevent that auto-zoom. */
+    select, input[type="text"], input[type="date"] { font-size: 16px; min-height: 36px; }
+    /* View toggle wraps onto multiple lines if needed. */
+    .view-toggle { flex-wrap: wrap; }
+    .view-toggle button { padding: 6px 10px; font-size: 12px; }
+
+    /* Totals tiles: 5 columns -> 2 columns. */
+    .totals { grid-template-columns: 1fr 1fr; gap: 6px; }
+    .total-tile { padding: 8px 10px; }
+    .total-tile .val { font-size: 18px; }
+
+    /* Vendor head: collapse the wide 7-column grid into a stacked
+       layout - toggle + name on the first row, then each stat tile
+       gets its own row with label on the right and value on the
+       left, separated by a dashed divider for scannability. */
+    .vendor-head {
+      grid-template-columns: 24px 1fr;
+      gap: 4px 8px;
+      padding: 8px 10px;
+    }
+    .vendor-head > div:nth-child(n+3) {
+      grid-column: 1 / -1;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      border-top: 1px dashed #EFEFEF;
+      padding-top: 4px;
+    }
+    .vendor-head > div:nth-child(n+3) .num {
+      text-align: left; font-size: 13px;
+    }
+    .vendor-head > div:nth-child(n+3) .meta {
+      text-align: right !important; margin-top: 0;
+    }
+
+    /* Doc tables have 9 columns - they cannot fit on a phone, so
+       wrap them in horizontal scroll. -webkit-overflow-scrolling
+       gives momentum-style swiping on iOS. */
+    .vendor-body { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 0 8px 10px; }
+    .doc-table { min-width: 720px; }
+
+    /* Chip row - already fine, just bigger touch targets. */
+    .chip { min-height: 30px; padding: 6px 12px; }
+
+    /* Banner / anomaly text: smaller padding so it doesn't dominate. */
+    .banner { padding: 8px 10px; }
+
+    /* Lifecycle pill: keep the same 4 segments x 20px - that fits
+       on the smallest iPhone (320 px) so no override needed. */
+
+    /* Albert button: hidden on deployed site anyway, but if it
+       returns we make sure it never blocks the Reload button. */
+    #albert-toggle { right: 10px !important; bottom: 10px !important; }
   }
 </style>
 </head>
