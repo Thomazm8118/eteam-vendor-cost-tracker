@@ -279,6 +279,8 @@
   .tag.paid { background: #757B6D; color: #FFFFFF; }
   .tag.unpaid { background: #F5A78E; color: #1D1D1B; }
   .tag.partial-paid { background: #FFE4D9; color: #C75D3F; }
+  /* Ready for review: yellow-green to mirror the JT INVOICE file-tag colour. */
+  .tag.ready-review { background: #84cc16; color: #1D1D1B; font-weight: 700; }
   .tag.imbalance { background: #C75D3F; color: #FFFFFF; }
 
   /* Fill bar (VTO bill coverage) */
@@ -795,6 +797,33 @@ function cisFor(grossAmount, vendorName) {
   return { rate, cisAmount, net };
 }
 
+// True when a document has BOTH a file tagged 'Completion' AND a file
+// tagged 'INVOICE'. Tom's site-walk rule: subbies must add one completion
+// photo and one invoice (photo or PDF), tagged accordingly. Once a bill
+// has both, Dan can review it. Used to switch a bill's row status from
+// 'Unpaid' to 'Ready for review' so Dan sees at a glance which bills are
+// actionable on a site visit.
+function hasReviewTags(doc) {
+  const files = doc?.files?.nodes;
+  if (!Array.isArray(files) || files.length === 0) return false;
+  let sawCompletion = false, sawInvoice = false;
+  for (const f of files) {
+    const tags = f?.fileTags?.nodes;
+    if (!Array.isArray(tags)) continue;
+    for (const t of tags) {
+      const name = t?.name;
+      if (!name) continue;
+      // Tag names are case-insensitive matched: tag IDs are stable in JT
+      // but the team writes 'Completion' as title case and 'INVOICE' caps.
+      const lower = name.toLowerCase();
+      if (lower === "completion") sawCompletion = true;
+      else if (lower === "invoice") sawInvoice = true;
+    }
+    if (sawCompletion && sawInvoice) return true;
+  }
+  return false;
+}
+
 // Secondary "tax-aware" line shown alongside a gross amount. Returns
 // { amount, suffix } for display, or null if there is nothing to show.
 //   CIS 20% / 30%   -> { gross x (1 - rate),  'net of CIS' }
@@ -1111,11 +1140,16 @@ async function fetchActiveETeamVendors() {
 }
 
 async function fetchDocsForVendor(vendorId, vendorName) {
+  // doc size dropped from 50 to 30 because JT's API rejects (HTTP 413)
+  // payloads larger than this once files+fileTags are included per doc.
+  // 30 still covers every active vendor today (largest has ~12 docs).
+  // files size 10 + fileTags size 5 is enough headroom for typical bills
+  // (one completion photo + one invoice file + a couple of stragglers).
   const res = await fetchJT({
     account: {
       $: { id: vendorId },
       documents: {
-        $: { size: 50 },
+        $: { size: 30 },
         count: {},
         nodes: {
           id: {}, type: {}, status: {}, issueDate: {}, subject: {},
@@ -1127,6 +1161,16 @@ async function fetchDocsForVendor(vendorId, vendorName) {
             nodes: {
               id: {}, type: {}, cost: {}, amountPaid: {},
               balance: {}, number: {}
+            }
+          },
+          files: {
+            $: { size: 10 },
+            count: {},
+            nodes: {
+              fileTags: {
+                $: { size: 5 },
+                nodes: { name: {} }
+              }
             }
           }
         }
@@ -2053,6 +2097,12 @@ function renderBillRow(b, indented, autoMatched) {
   // CIS net on the BALANCE (what's still to pay)
   const balCis = bal > 0 ? cisFor(bal, vendorName) : null;
 
+  // 'Ready for review' wins over plain Unpaid/Part paid: a bill with both
+  // a Completion-tagged file AND an INVOICE-tagged file is ready for Dan's
+  // site review. Until paid in full it stays in this state. Once paid (JT
+  // marks it closed) we switch to 'Paid' as before.
+  const readyForReview = bal > 0 && hasReviewTags(b);
+
   let statusTag = "";
   if (b.status === "denied") {
     statusTag = '<span class="tag" style="background:#BABABC">Denied</span>';
@@ -2062,6 +2112,8 @@ function renderBillRow(b, indented, autoMatched) {
   } else if (isFullyPaid) {
     statusTag = '<span class="tag paid">Paid</span>';
     if (paidDate) statusTag += ` <span class="cell-label" style="margin-left:4px">on ${paidDate}</span>`;
+  } else if (readyForReview) {
+    statusTag = '<span class="tag ready-review" title="Both a Completion photo and an INVOICE file are tagged. Ready for Dan to review on site.">Ready for review</span>';
   } else if (ap === 0 && bal > 0) {
     statusTag = '<span class="tag unpaid">Unpaid</span>';
   } else if (ap > 0 && bal > 0) {
