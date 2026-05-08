@@ -201,11 +201,13 @@
     transition: background 0.2s;
   }
   /* Per-stage colors. Apple iOS system palette: clean, vivid, modern,
-     instantly recognisable from Calendar / Reminders / Mail. The 4-stage
-     progression reads at a glance: blue -> orange -> lime -> green. */
+     instantly recognisable from Calendar / Reminders / Mail. Stage
+     progression: blue -> orange -> purple -> green. Purple for review
+     keeps it visually distinct from green so 'ready' and 'approved'
+     never read as the same state. */
   .lifecycle-bar .seg.s-created   { background: #0A84FF; } /* Apple Blue */
   .lifecycle-bar .seg.s-accepted  { background: #FF9F0A; } /* Apple Orange */
-  .lifecycle-bar .seg.s-review    { background: #84CC16; } /* Vivid lime (NEW), bridges orange and green */
+  .lifecycle-bar .seg.s-review    { background: #AF52DE; } /* Apple Purple, the 'in review' state in Linear, GitHub etc */
   .lifecycle-bar .seg.s-fully     { background: #34C759; } /* Apple Green */
   .lifecycle-bar .seg.s-partly    { background: #FFCC00; } /* Apple Yellow */
   .lifecycle-bar .seg.s-over      { background: #FF3B30; } /* Apple Red */
@@ -216,14 +218,14 @@
     color: #383838; font-weight: 700;
     line-height: 1.2;
   }
-  /* Label colours = slightly deeper variants of the seg colour so the
-     text stays readable on the cream #F8F9F4 page background. */
-  .lifecycle-label.l-created  { color: #0050C7; }
-  .lifecycle-label.l-accepted { color: #C77000; }
-  .lifecycle-label.l-review   { color: #65A30D; } /* lime-600 */
-  .lifecycle-label.l-approved { color: #1B7F2D; }
-  .lifecycle-label.l-over     { color: #C7271F; }
-  .lifecycle-label.l-denied   { color: #5A5A5C; }
+  /* Labels match segment colours exactly so the eye links the bar to
+     the text without translation. */
+  .lifecycle-label.l-created  { color: #0A84FF; }
+  .lifecycle-label.l-accepted { color: #FF9F0A; }
+  .lifecycle-label.l-review   { color: #AF52DE; }
+  .lifecycle-label.l-approved { color: #34C759; }
+  .lifecycle-label.l-over     { color: #FF3B30; }
+  .lifecycle-label.l-denied   { color: #8E8E93; }
 
   .lifecycle-sub {
     font-size: 9px; color: #757B6D; font-family: 'PT Mono', monospace;
