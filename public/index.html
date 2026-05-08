@@ -1141,16 +1141,18 @@ async function fetchActiveETeamVendors() {
 }
 
 async function fetchDocsForVendor(vendorId, vendorName) {
-  // doc size dropped from 50 to 30 because JT's API rejects (HTTP 413)
-  // payloads larger than this once files+fileTags are included per doc.
-  // 30 still covers every active vendor today (largest has ~12 docs).
-  // files size 10 + fileTags size 5 is enough headroom for typical bills
-  // (one completion photo + one invoice file + a couple of stragglers).
+  // Sized to stay under JT's per-response 413 limit. 25 docs covers every
+  // active vendor today (largest has ~18 docs). files size 3 plus
+  // fileTags size 2 is tight but sufficient for the predicate we need:
+  // bills typically carry one Completion photo + one INVOICE file, each
+  // with 1 or 2 tags. If a future bill has more, we still detect both
+  // tags as long as they appear on the first 3 files. Don't raise these
+  // without re-testing against the vendor with the most docs.
   const res = await fetchJT({
     account: {
       $: { id: vendorId },
       documents: {
-        $: { size: 30 },
+        $: { size: 25 },
         count: {},
         nodes: {
           id: {}, type: {}, status: {}, issueDate: {}, subject: {},
@@ -1165,11 +1167,11 @@ async function fetchDocsForVendor(vendorId, vendorName) {
             }
           },
           files: {
-            $: { size: 10 },
+            $: { size: 3 },
             count: {},
             nodes: {
               fileTags: {
-                $: { size: 5 },
+                $: { size: 2 },
                 nodes: { name: {} }
               }
             }
