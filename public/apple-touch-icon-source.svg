@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" aria-label="Abacus">
+  <!-- Solid square fill so iOS applies its own squircle mask cleanly. -->
+  <rect width="180" height="180" fill="#383838"/>
+  <!-- Three rods, mid-tone off-white. -->
+  <line x1="22" y1="56" x2="158" y2="56" stroke="#F8F9F4" stroke-width="6"/>
+  <line x1="22" y1="90" x2="158" y2="90" stroke="#F8F9F4" stroke-width="6"/>
+  <line x1="22" y1="124" x2="158" y2="124" stroke="#F8F9F4" stroke-width="6"/>
+  <!-- Beads on rod 1: peach pushed left, off-white pushed right -->
+  <circle cx="50" cy="56" r="17" fill="#F5A78E"/>
+  <circle cx="84" cy="56" r="17" fill="#F5A78E"/>
+  <circle cx="130" cy="56" r="17" fill="#F8F9F4"/>
+  <!-- Beads on rod 2: peach left, off-white right -->
+  <circle cx="50" cy="90" r="17" fill="#F5A78E"/>
+  <circle cx="96" cy="90" r="17" fill="#F8F9F4"/>
+  <circle cx="130" cy="90" r="17" fill="#F8F9F4"/>
+  <!-- Beads on rod 3: peach across, single off-white -->
+  <circle cx="50" cy="124" r="17" fill="#F5A78E"/>
+  <circle cx="84" cy="124" r="17" fill="#F5A78E"/>
+  <circle cx="113" cy="124" r="17" fill="#F5A78E"/>
+</svg>
