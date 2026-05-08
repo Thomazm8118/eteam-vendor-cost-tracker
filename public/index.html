@@ -638,6 +638,7 @@
           <button class="active" data-view="default">Full</button>
           <button data-view="anna">Anna · Payable</button>
           <button data-view="dan">Dan · VTOs awaiting bill</button>
+          <button data-view="dan-review">Dan · Ready for review</button>
         </div>
       </div>
       <button class="ghost" id="reset-btn">Reset</button>
@@ -1595,6 +1596,10 @@ function computeStats(docs) {
   let payableNet = 0; // payable amount after CIS deduction
   let cisOnPayable = 0; // CIS portion of the payable
   let vtoCount = 0, billCount = 0, paidCount = 0, payableCount = 0, orphanVtoCount = 0;
+  // Bills that are unpaid AND have both a Completion-tagged and an
+  // INVOICE-tagged file. Used to sort/highlight vendors in the
+  // 'Dan, Ready for review' view.
+  let readyReviewCount = 0;
 
   for (const d of docs) {
     if (d.type === "vendorOrder" || d.type === "bidRequest") {
@@ -1637,6 +1642,9 @@ function computeStats(docs) {
       billCount++;
       if (bal === 0 && ap > 0) paidCount++;
       else if (bal > 0) payableCount++;
+      // Same predicate as renderBillRow: unpaid + both required tags = ready
+      // for Dan's site review.
+      if (bal > 0 && hasReviewTags(d)) readyReviewCount++;
       // Orphan bills (no parent VTO, formal or auto-matched) contribute to
       // committed; otherwise vendors with only direct-expense bills (e.g.
       // legacy QB imports, or a brand-new vendor before any VTO exists)
@@ -1646,7 +1654,7 @@ function computeStats(docs) {
       }
     }
   }
-  return { committed, billed, paid, payable, payableNet, cisOnPayable, toBill, vtoCount, billCount, paidCount, payableCount, orphanVtoCount };
+  return { committed, billed, paid, payable, payableNet, cisOnPayable, toBill, vtoCount, billCount, paidCount, payableCount, orphanVtoCount, readyReviewCount };
 }
 
 function renderVendorGroups(docs) {
@@ -1680,6 +1688,7 @@ function renderVendorGroups(docs) {
   const sortByStats = (a, b) => {
     if (state.filters.view === "anna") return b.stats.payable - a.stats.payable;
     if (state.filters.view === "dan") return b.stats.toBill - a.stats.toBill;
+    if (state.filters.view === "dan-review") return (b.stats.readyReviewCount || 0) - (a.stats.readyReviewCount || 0);
     return b.stats.committed - a.stats.committed;
   };
   groups.sort((a, b) => {
@@ -1695,6 +1704,7 @@ function renderVendorGroups(docs) {
   for (const g of groups) {
     if (state.filters.view === "anna" && g.stats.payable <= 0) zeroRelevanceCount++;
     else if (state.filters.view === "dan" && g.stats.toBill <= 0 && g.stats.orphanVtoCount === 0) zeroRelevanceCount++;
+    else if (state.filters.view === "dan-review" && (g.stats.readyReviewCount || 0) === 0) zeroRelevanceCount++;
   }
 
   let html = "";
@@ -1707,7 +1717,11 @@ function renderVendorGroups(docs) {
   } else if (state.filters.view === "anna" && zeroRelevanceCount > 0) {
     html += `<div style="font-size:11px;color:#757B6D;font-family:'PT Mono',monospace;padding:6px 12px;margin-bottom:8px">Anna view — sorted by Payable. ${zeroRelevanceCount} vendor(s) below have £0 payable (greyed).</div>`;
   } else if (state.filters.view === "dan" && zeroRelevanceCount > 0) {
-    html += `<div style="font-size:11px;color:#757B6D;font-family:'PT Mono',monospace;padding:6px 12px;margin-bottom:8px">Dan view — sorted by VTOs awaiting bill. ${zeroRelevanceCount} vendor(s) below have nothing awaiting (greyed).</div>`;
+    html += `<div style="font-size:11px;color:#757B6D;font-family:'PT Mono',monospace;padding:6px 12px;margin-bottom:8px">Dan view &mdash; sorted by VTOs awaiting bill. ${zeroRelevanceCount} vendor(s) below have nothing awaiting (greyed).</div>`;
+  } else if (state.filters.view === "dan-review") {
+    const totalReview = groups.reduce((s, g) => s + (g.stats.readyReviewCount || 0), 0);
+    const visibleVendors = groups.length - zeroRelevanceCount;
+    html += `<div style="font-size:11px;color:#383838;font-family:'PT Mono',monospace;padding:6px 12px;margin-bottom:8px;background:#ecfccb;border-radius:3px">Dan, Ready for review: ${totalReview} bill(s) across ${visibleVendors} vendor(s) have both a Completion and an INVOICE file tagged and are still unpaid. ${zeroRelevanceCount} vendor(s) below have none ready (greyed).</div>`;
   }
 
   const vendorOpenState = loadVendorOpenState();
@@ -1719,17 +1733,19 @@ function renderVendorGroups(docs) {
     const v = state.vendors[g.vendor.id] || { name: g.vendor.name, type: "—" };
     const isViewAnna = state.filters.view === "anna";
     const isViewDan = state.filters.view === "dan";
+    const isViewDanReview = state.filters.view === "dan-review";
 
     // Vendors with no current relevance for the active view get visually de-emphasized
     // but they DO NOT disappear. Tom's cardinal rule: data must never vanish.
     const zeroRelevance =
       (isViewAnna && g.stats.payable <= 0) ||
-      (isViewDan && g.stats.toBill <= 0 && g.stats.orphanVtoCount === 0);
+      (isViewDan && g.stats.toBill <= 0 && g.stats.orphanVtoCount === 0) ||
+      (isViewDanReview && (g.stats.readyReviewCount || 0) === 0);
     // Default open behaviour: Anna/Dan auto-open relevant cards, default
     // view starts collapsed, search opens matched cards. Persisted user
     // choice (clicking a header to open/close) overrides the default so
     // it survives JT Reload and browser refresh.
-    const defaultOpen = ((isViewAnna || isViewDan) && !zeroRelevance) || searchActive;
+    const defaultOpen = ((isViewAnna || isViewDan || isViewDanReview) && !zeroRelevance) || searchActive;
     const explicit = vendorOpenState[g.vendor.id];
     const isOpen = explicit === "open" ? true
                  : explicit === "closed" ? false
