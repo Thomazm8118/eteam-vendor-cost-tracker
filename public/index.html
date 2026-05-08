@@ -200,24 +200,28 @@
     background: #E5E5E5;
     transition: background 0.2s;
   }
-  /* Per-stage colors — saturated for at-a-glance reading */
-  .lifecycle-bar .seg.s-created   { background: #2563EB; } /* bright blue */
-  .lifecycle-bar .seg.s-accepted  { background: #F97316; } /* vivid orange */
-  .lifecycle-bar .seg.s-fully     { background: #16A34A; } /* clean green */
-  .lifecycle-bar .seg.s-partly    { background: #EAB308; } /* amber/yellow */
-  .lifecycle-bar .seg.s-over      { background: #DC2626; } /* punchy red */
-  .lifecycle-bar .seg.s-denied    { background: #991B1B; } /* deep red */
+  /* Per-stage colors. Natural earth-tone palette to match Elemented:
+     dusty blue, warm honey, sage moss, forest green. Order of stages on
+     the bar: created -> accepted -> ready for review -> billed. */
+  .lifecycle-bar .seg.s-created   { background: #7A9CB8; } /* dusty blue */
+  .lifecycle-bar .seg.s-accepted  { background: #C7984F; } /* warm honey amber */
+  .lifecycle-bar .seg.s-review    { background: #9DB17C; } /* sage moss (NEW) */
+  .lifecycle-bar .seg.s-fully     { background: #588157; } /* forest green */
+  .lifecycle-bar .seg.s-partly    { background: #D9A86F; } /* lighter honey */
+  .lifecycle-bar .seg.s-over      { background: #C75D3F; } /* burnt orange (Elemented) */
+  .lifecycle-bar .seg.s-denied    { background: #7B4848; } /* muted dark red */
 
   .lifecycle-label {
     font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px;
     color: #383838; font-weight: 700;
     line-height: 1.2;
   }
-  .lifecycle-label.l-created  { color: #2563EB; }
-  .lifecycle-label.l-accepted { color: #EA580C; } /* slightly darker than seg for text legibility on light bg */
-  .lifecycle-label.l-approved { color: #15803D; }
-  .lifecycle-label.l-over     { color: #DC2626; }
-  .lifecycle-label.l-denied   { color: #991B1B; }
+  .lifecycle-label.l-created  { color: #5A7A95; }
+  .lifecycle-label.l-accepted { color: #A57F36; }
+  .lifecycle-label.l-review   { color: #75895A; } /* NEW, sage moss text */
+  .lifecycle-label.l-approved { color: #456845; }
+  .lifecycle-label.l-over     { color: #A04A30; }
+  .lifecycle-label.l-denied   { color: #5C3636; }
 
   .lifecycle-sub {
     font-size: 9px; color: #757B6D; font-family: 'PT Mono', monospace;
@@ -279,8 +283,6 @@
   .tag.paid { background: #757B6D; color: #FFFFFF; }
   .tag.unpaid { background: #F5A78E; color: #1D1D1B; }
   .tag.partial-paid { background: #FFE4D9; color: #C75D3F; }
-  /* Ready for review: yellow-green to mirror the JT INVOICE file-tag colour. */
-  .tag.ready-review { background: #84cc16; color: #1D1D1B; font-weight: 700; }
   .tag.imbalance { background: #C75D3F; color: #FFFFFF; }
 
   /* Fill bar (VTO bill coverage) */
@@ -1618,6 +1620,12 @@ function computeStats(docs) {
       const remain = cost - linkedCostSum;
       if (remain > 0) toBill += remain;
       if (linkedBills.length === 0) orphanVtoCount++;
+      // Ready for review: VTO is approved, has BOTH a Completion-tagged
+      // and an INVOICE-tagged file attached, and has not yet been
+      // converted to a bill (Dan still has to do that). Drives the new
+      // sage-moss lifecycle stage and the 'Dan, Ready for review' view
+      // chip's vendor sort.
+      if (linkedBills.length === 0 && hasReviewTags(d)) readyReviewCount++;
     } else if (d.type === "vendorBill") {
       if (d.status === "denied") continue;
       const cost = d.cost || 0;
@@ -1644,9 +1652,6 @@ function computeStats(docs) {
       billCount++;
       if (bal === 0 && ap > 0) paidCount++;
       else if (bal > 0) payableCount++;
-      // Same predicate as renderBillRow: unpaid + both required tags = ready
-      // for Dan's site review.
-      if (bal > 0 && hasReviewTags(d)) readyReviewCount++;
       // Orphan bills (no parent VTO, formal or auto-matched) contribute to
       // committed; otherwise vendors with only direct-expense bills (e.g.
       // legacy QB imports, or a brand-new vendor before any VTO exists)
@@ -1723,7 +1728,7 @@ function renderVendorGroups(docs) {
   } else if (state.filters.view === "dan-review") {
     const totalReview = groups.reduce((s, g) => s + (g.stats.readyReviewCount || 0), 0);
     const visibleVendors = groups.length - zeroRelevanceCount;
-    html += `<div style="font-size:11px;color:#383838;font-family:'PT Mono',monospace;padding:6px 12px;margin-bottom:8px;background:#ecfccb;border-radius:3px">Dan, Ready for review: ${totalReview} bill(s) across ${visibleVendors} vendor(s) have both a Completion and an INVOICE file tagged and are still unpaid. ${zeroRelevanceCount} vendor(s) below have none ready (greyed).</div>`;
+    html += `<div style="font-size:11px;color:#383838;font-family:'PT Mono',monospace;padding:6px 12px;margin-bottom:8px;background:#ecfccb;border-radius:3px">Dan, Ready for review: ${totalReview} VTO(s) across ${visibleVendors} vendor(s) have both a Completion and an INVOICE file attached and are awaiting Dan's site sign-off. ${zeroRelevanceCount} vendor(s) below have none ready (greyed).</div>`;
   }
 
   const vendorOpenState = loadVendorOpenState();
@@ -1998,11 +2003,19 @@ function renderVendorDocs(docs) {
 }
 
 function getVtoLifecycle(v, linkedBills, sumLinked, cost) {
-  // Returns { stages, label, labelClass, sub, fillCls, pct }
-  // Stages array contains class tokens: "s-created" | "s-accepted" | "s-fully" | "s-partly" | "s-over" | "s-denied" | "" (empty)
+  // 4-segment pill: Created -> Accepted -> Ready for review -> Billed.
+  // 'Ready for review' (NEW, sage moss): VTO accepted, no bills yet, but
+  // both a Completion-tagged file AND an INVOICE-tagged file are attached
+  // to the VTO. Dan's cue to walk the site, sign off, and convert it to
+  // a bill. Once Dan converts (linkedBills > 0) we move to the billed
+  // states and segment 3 stays lit (sage moss) as a 'passed through
+  // review' marker, with segment 4 showing the bill state.
+  const hasReview = hasReviewTags(v);
+  const seg3IfBilled = hasReview ? "s-review" : "";
+
   if (v.status === "denied") {
     return {
-      stages: ["s-denied", "s-denied", "s-denied"],
+      stages: ["s-denied", "s-denied", "s-denied", "s-denied"],
       label: "Denied",
       labelClass: "l-denied",
       sub: "VTO was denied",
@@ -2012,7 +2025,7 @@ function getVtoLifecycle(v, linkedBills, sumLinked, cost) {
   }
   if (v.status === "pending" || v.status === "draft") {
     return {
-      stages: ["s-created", "", ""],
+      stages: ["s-created", "", "", ""],
       label: "Created",
       labelClass: "l-created",
       sub: "Awaiting vendor acceptance",
@@ -2021,8 +2034,18 @@ function getVtoLifecycle(v, linkedBills, sumLinked, cost) {
     };
   }
   if (linkedBills.length === 0) {
+    if (hasReview) {
+      return {
+        stages: ["s-created", "s-accepted", "s-review", ""],
+        label: "Ready for review",
+        labelClass: "l-review",
+        sub: "Files attached. Dan to convert to bill.",
+        fillCls: "fillbar",
+        pct: 0
+      };
+    }
     return {
-      stages: ["s-created", "s-accepted", ""],
+      stages: ["s-created", "s-accepted", "", ""],
       label: "Accepted",
       labelClass: "l-accepted",
       sub: "Awaiting Dan's approval",
@@ -2032,17 +2055,17 @@ function getVtoLifecycle(v, linkedBills, sumLinked, cost) {
   }
   if (sumLinked > cost + 0.5) {
     return {
-      stages: ["s-created", "s-accepted", "s-over"],
-      label: "⚠ Over-billed",
+      stages: ["s-created", "s-accepted", seg3IfBilled, "s-over"],
+      label: "Over-billed",
       labelClass: "l-over",
-      sub: `By ${fmtMoney(sumLinked - cost)} — possible double-bill`,
+      sub: `By ${fmtMoney(sumLinked - cost)}, possible double-bill`,
       fillCls: "fillbar over",
       pct: 100
     };
   }
   if (Math.abs(sumLinked - cost) < 0.5) {
     return {
-      stages: ["s-created", "s-accepted", "s-fully"],
+      stages: ["s-created", "s-accepted", seg3IfBilled, "s-fully"],
       label: "Approved",
       labelClass: "l-approved",
       sub: "Fully billed",
@@ -2051,7 +2074,7 @@ function getVtoLifecycle(v, linkedBills, sumLinked, cost) {
     };
   }
   return {
-    stages: ["s-created", "s-accepted", "s-partly"],
+    stages: ["s-created", "s-accepted", seg3IfBilled, "s-partly"],
     label: "Approved",
     labelClass: "l-approved",
     sub: `Partly billed (${Math.round((sumLinked / cost) * 100)}%)`,
@@ -2115,12 +2138,10 @@ function renderBillRow(b, indented, autoMatched) {
   // CIS net on the BALANCE (what's still to pay)
   const balCis = bal > 0 ? cisFor(bal, vendorName) : null;
 
-  // 'Ready for review' wins over plain Unpaid/Part paid: a bill with both
-  // a Completion-tagged file AND an INVOICE-tagged file is ready for Dan's
-  // site review. Until paid in full it stays in this state. Once paid (JT
-  // marks it closed) we switch to 'Paid' as before.
-  const readyForReview = bal > 0 && hasReviewTags(b);
-
+  // Bill status is purely Anna's view: Unpaid / Part paid / Paid /
+  // Legacy / Denied. The 'Ready for review' indicator lives on the VTO
+  // lifecycle (Dan's view), not on the bill, so Anna does not lose
+  // sight of payment state.
   let statusTag = "";
   if (b.status === "denied") {
     statusTag = '<span class="tag" style="background:#BABABC">Denied</span>';
@@ -2130,8 +2151,6 @@ function renderBillRow(b, indented, autoMatched) {
   } else if (isFullyPaid) {
     statusTag = '<span class="tag paid">Paid</span>';
     if (paidDate) statusTag += ` <span class="cell-label" style="margin-left:4px">on ${paidDate}</span>`;
-  } else if (readyForReview) {
-    statusTag = '<span class="tag ready-review" title="Both a Completion photo and an INVOICE file are tagged. Ready for Dan to review on site.">Ready for review</span>';
   } else if (ap === 0 && bal > 0) {
     statusTag = '<span class="tag unpaid">Unpaid</span>';
   } else if (ap > 0 && bal > 0) {
