@@ -747,6 +747,7 @@
 //////////////////////////////////////////////////////////
 const ORG_ID = "22PJRnQtHw9C";
 const VENDOR_TYPE_FIELD_ID = "22PLePMgRiuP";
+const VAT_CIS_RC_FIELD_ID = "22PWxhHmGT2g";
 const PAGE_SIZE = 40;
 const REF_DOCS_SIZE = 8;
 const JT_BASE = "https://app.jobtread.com";
@@ -766,16 +767,26 @@ const TEST_PERSONA_NAMES = new Set([
   "TOM VENDOR TEST"
 ]);
 
-// CIS configuration. Default 20% deduction on labour for all E-Team.
-// Vendors in NO_CIS_VENDORS get no CIS applied (e.g. reverse-charge VAT subbies).
-// Tom will move this to a JT custom field/tag in the future.
-const CIS_RATE = 0.20;
-const NO_CIS_VENDORS = new Set([
-  "Green London Plumbers Ltd."
-]);
+// Tax treatment per vendor, read from the JT custom field 'VAT/CIS/RC'
+// (id VAT_CIS_RC_FIELD_ID) on each vendor account. Picklist options:
+//   'CIS 20%'       standard CIS subcontractor (most E-Team), 20% deducted from labour
+//   'CIS 30%'       unregistered subbie rate, 30% deducted (HMRC default)
+//   'VAT 20%'       VAT-registered supplier, 20% VAT added on top, no CIS
+//   'RC CIS 20.0%'  reverse-charge VAT, no CIS deduction (Elemented accounts to HMRC)
+// Vendors not yet tagged in JT default to 'CIS 20%'. Tax treatment is set in
+// fetchActiveETeamVendors and read off state.vendors below.
+function getTaxTreatment(vendorName) {
+  for (const v of Object.values(state.vendors)) {
+    if (v.name === vendorName) return v.taxTreatment || 'CIS 20%';
+  }
+  return 'CIS 20%';
+}
 function getCisRate(vendorName) {
-  if (NO_CIS_VENDORS.has(vendorName)) return 0;
-  return CIS_RATE;
+  const t = getTaxTreatment(vendorName);
+  if (t === 'CIS 30%') return 0.30;
+  if (t === 'CIS 20%') return 0.20;
+  // VAT 20% and RC CIS 20.0% have no CIS deduction.
+  return 0;
 }
 function cisFor(grossAmount, vendorName) {
   const rate = getCisRate(vendorName);
@@ -1030,24 +1041,53 @@ async function fetchJT(queryBody) {
   return data;
 }
 
-async function fetchActiveETeamVendors() {
+// Returns { vendorId: 'CIS 20%' | 'CIS 30%' | 'VAT 20%' | 'RC CIS 20.0%' }
+// Vendors absent from the result default to 'CIS 20%' at the merge site.
+async function fetchVendorTaxTreatments() {
   const res = await fetchJT({
     customField: {
-      $: { id: VENDOR_TYPE_FIELD_ID },
+      $: { id: VAT_CIS_RC_FIELD_ID },
       customFieldValues: {
         $: { size: 100 },
-        nodes: { value: {}, account: { id: {}, name: {} } }
+        nodes: { value: {}, account: { id: {} } }
       }
     }
   });
-  logDebug("vendor types response", res);
-  const vendors = {};
+  const map = {};
   const nodes = res?.customField?.customFieldValues?.nodes || [];
+  for (const n of nodes) {
+    if (n.account?.id && n.value) map[n.account.id] = n.value;
+  }
+  return map;
+}
+
+async function fetchActiveETeamVendors() {
+  const [typeRes, taxMap] = await Promise.all([
+    fetchJT({
+      customField: {
+        $: { id: VENDOR_TYPE_FIELD_ID },
+        customFieldValues: {
+          $: { size: 100 },
+          nodes: { value: {}, account: { id: {}, name: {} } }
+        }
+      }
+    }),
+    fetchVendorTaxTreatments()
+  ]);
+  logDebug("vendor types response", typeRes);
+  logDebug("tax treatments map", taxMap);
+  const vendors = {};
+  const nodes = typeRes?.customField?.customFieldValues?.nodes || [];
   for (const n of nodes) {
     if (!n.account) continue;
     if (n.value !== "E Team") continue;
     if (EXCLUDED_VENDOR_NAMES.has(n.account.name)) continue;
-    vendors[n.account.id] = { id: n.account.id, name: n.account.name, type: n.value };
+    vendors[n.account.id] = {
+      id: n.account.id,
+      name: n.account.name,
+      type: n.value,
+      taxTreatment: taxMap[n.account.id] || 'CIS 20%'
+    };
   }
   return vendors;
 }
@@ -1630,12 +1670,16 @@ function renderVendorGroups(docs) {
     const noDocs = g.docs.length === 0;
     let nameTags = "";
     if (TEST_PERSONA_NAMES.has(v.name)) nameTags += ' <span class="tag" style="background:#F5A78E;color:#1D1D1B">TEST</span>';
-    // CIS treatment badge
-    const cisRate = getCisRate(v.name);
-    if (cisRate === 0) {
-      nameTags += ' <span class="tag" style="background:#B3BCB6;color:#1D1D1B" title="No CIS deduction (reverse charge)">RC · No CIS</span>';
+    // Tax treatment badge: one of four states from the JT VAT/CIS/RC field.
+    const taxTreatment = getTaxTreatment(v.name);
+    if (taxTreatment === 'VAT 20%') {
+      nameTags += ' <span class="tag" style="background:#F5A78E;color:#1D1D1B" title="VAT-registered supplier: 20% VAT added on top, no CIS">VAT 20%</span>';
+    } else if (taxTreatment === 'RC CIS 20.0%') {
+      nameTags += ' <span class="tag" style="background:#B3BCB6;color:#1D1D1B" title="Reverse-charge VAT: no CIS deduction. Elemented accounts for VAT to HMRC.">RC · No CIS</span>';
+    } else if (taxTreatment === 'CIS 30%') {
+      nameTags += ' <span class="tag" style="background:#C75D3F;color:#FFFFFF" title="Unregistered subcontractor: 30% CIS deducted from labour">CIS 30%</span>';
     } else {
-      nameTags += ` <span class="tag" style="background:#383838;color:#FFFFFF" title="${Math.round(cisRate*100)}% CIS deducted from gross">CIS ${Math.round(cisRate*100)}%</span>`;
+      nameTags += ' <span class="tag" style="background:#383838;color:#FFFFFF" title="Standard CIS subbie: 20% deducted from labour">CIS 20%</span>';
     }
     if (failed) nameTags += ' <span class="tag" style="background:#C75D3F;color:#FFFFFF">FETCH FAILED — RELOAD</span>';
     else if (noDocs) nameTags += ' <span class="tag" style="background:#BABABC;color:#1D1D1B">No documents yet</span>';
