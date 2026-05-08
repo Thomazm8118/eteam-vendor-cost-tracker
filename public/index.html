@@ -795,6 +795,24 @@ function cisFor(grossAmount, vendorName) {
   return { rate, cisAmount, net };
 }
 
+// Secondary "tax-aware" line shown alongside a gross amount. Returns
+// { amount, suffix } for display, or null if there is nothing to show.
+//   CIS 20% / 30%   -> { gross x (1 - rate),  'net of CIS' }
+//   VAT 20%         -> { gross x 1.20,        'inc VAT' }
+//   RC CIS 20.0%    -> { gross x 0.20,        'RC VAT' }   (the VAT to self-account)
+//   default         -> null
+// Use this instead of cisFor at display sites so VAT and reverse-charge
+// vendors get their own treatment line, mirroring how CIS is shown.
+function payableTaxParts(grossAmount, vendorName) {
+  if (!grossAmount || grossAmount <= 0) return null;
+  const t = getTaxTreatment(vendorName);
+  if (t === 'CIS 30%')      return { amount: grossAmount * 0.70, suffix: 'net of CIS' };
+  if (t === 'CIS 20%')      return { amount: grossAmount * 0.80, suffix: 'net of CIS' };
+  if (t === 'VAT 20%')      return { amount: grossAmount * 1.20, suffix: 'inc VAT' };
+  if (t === 'RC CIS 20.0%') return { amount: grossAmount * 0.20, suffix: 'RC VAT' };
+  return null;
+}
+
 //////////////////////////////////////////////////////////
 // STATE
 //////////////////////////////////////////////////////////
@@ -1558,11 +1576,19 @@ function computeStats(docs) {
       billed += billedAmt;
       paid += ap;
       payable += bal;
-      // CIS calc on the outstanding balance — that's what Anna actually writes the cheque for
+      // What Anna actually writes the cheque for, by vendor tax treatment:
+      //   CIS subbie:      gross minus CIS deduction
+      //   VAT supplier:    gross plus VAT
+      //   Reverse charge:  gross (no adjustment)
+      // payableNet is the sum of these per-bill adjusted amounts. cisOnPayable
+      // tracks the CIS-only portion across the filter (still useful as a CIS
+      // exposure metric).
       if (bal > 0) {
+        const tp = payableTaxParts(bal, d.account?.name);
+        if (tp) payableNet += tp.amount;
+        else payableNet += bal;
         const c = cisFor(bal, d.account?.name);
         cisOnPayable += c.cisAmount;
-        payableNet += c.net;
       }
       billCount++;
       if (bal === 0 && ap > 0) paidCount++;
@@ -1708,7 +1734,10 @@ function renderVendorGroups(docs) {
           </div>
           <div>
             <div class="num ${g.stats.payable > 0 ? 'payable' : 'muted'}">${fmtMoney(g.stats.payable)}</div>
-            <div class="meta" style="text-align:right">Payable${g.stats.payable > 0 ? ` · <b>${fmtMoney(g.stats.payableNet)}</b> net` : ''}</div>
+            <div class="meta" style="text-align:right">Payable${(() => {
+              const tp = payableTaxParts(g.stats.payable, v.name);
+              return tp ? ` · <b>${fmtMoney(tp.amount)}</b> ${tp.suffix}` : '';
+            })()}</div>
           </div>
           <div>
             <div class="num ${g.stats.toBill > 0 ? '' : 'muted'}">${fmtMoney(g.stats.toBill)}</div>
@@ -2038,17 +2067,21 @@ function renderBillRow(b, indented, autoMatched) {
   } else if (ap > 0 && bal > 0) {
     statusTag = '<span class="tag partial-paid">Part paid</span>';
   }
-  // The "to pay" cell — if there's CIS, show net underneath gross
+  // The "to pay" cell shows the gross balance with a tax-aware second line
+  // underneath: net-of-CIS for CIS subbies, inc-VAT for VAT suppliers,
+  // RC-VAT amount for reverse-charge vendors. payableTaxParts handles the
+  // branching; if it returns null, no secondary line is shown.
   let toPayCell;
-  if (bal > 0 && balCis && balCis.rate > 0) {
-    toPayCell = `${fmtMoney(bal)} <span class="cell-label">to pay</span><br><span class="cell-label" style="color:#383838">${fmtMoney(balCis.net)} net of CIS</span>`;
-  } else if (bal > 0) {
+  if (bal > 0) {
+    const tp = payableTaxParts(bal, vendorName);
     toPayCell = `${fmtMoney(bal)} <span class="cell-label">to pay</span>`;
-  } else if (isFullyPaid && cisRate > 0 && cost > 0) {
-    // Historical net-of-CIS so Anna can match paid rows to bank lines,
-    // which show the amount the vendor received (CIS goes to HMRC).
-    const costNet = cisFor(cost, vendorName).net;
-    toPayCell = `${fmtMoney(bal)}<br><span class="cell-label" style="color:#383838">${fmtMoney(costNet)} net of CIS</span>`;
+    if (tp) toPayCell += `<br><span class="cell-label" style="color:#383838">${fmtMoney(tp.amount)} ${tp.suffix}</span>`;
+  } else if (isFullyPaid && cost > 0) {
+    // Historical reference for fully-paid rows so Anna can match against
+    // bank lines (the gross-with-VAT or net-of-CIS amount actually paid).
+    const tpHist = payableTaxParts(cost, vendorName);
+    toPayCell = `${fmtMoney(bal)}`;
+    if (tpHist) toPayCell += `<br><span class="cell-label" style="color:#383838">${fmtMoney(tpHist.amount)} ${tpHist.suffix}</span>`;
   } else {
     toPayCell = `${fmtMoney(bal)}`;
   }
